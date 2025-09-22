@@ -10,6 +10,11 @@
 <div class="container mt-4">
     <h1 class="text-center text-primary mb-4">🐾 DANH SÁCH YÊU CẦU HỖ TRỢ 🐾</h1>
 
+    <div class="d-flex justify-content-end mb-2">
+        <button id="reloadBtn" class="btn btn-outline-primary btn-sm me-2">🔄 Load lại</button>
+        <button id="autoBtn" class="btn btn-outline-secondary btn-sm">Tự động: TẮT</button>
+    </div>
+
     <div class="card shadow">
         <div class="card-header bg-success text-white">
             <h4>📋 Danh sách yêu cầu</h4>
@@ -22,10 +27,52 @@
 
 <script>
 const API = "/supportservicecf/api/support";
+let autoRefresh = false;
+let autoTimer = null;
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function formatTime(createdAt) {
+    if (!createdAt) return '';
+    try {
+        // convert "2025-09-22 16:18:34" -> "2025-09-22T16:18:34"
+        let s = createdAt.trim();
+        if (s.indexOf(' ') > -1 && s.indexOf('T') === -1) {
+            s = s.replace(' ', 'T');
+        }
+        const d = new Date(s);
+        if (!isNaN(d)) return d.toLocaleString('vi-VN', {hour12:false});
+    } catch (e) {}
+    return createdAt;
+}
+
+function buildItem(item) {
+    const time = formatTime(item.createdAt || item.created_at);
+    return `
+      <div class="list-group-item d-flex justify-content-between align-items-start">
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <small class="text-muted">(${escapeHtml(item.email)})</small><br>
+          ${escapeHtml(item.message)}<br>
+          <small class="badge bg-secondary">Trạng thái: ${escapeHtml(item.status || 'Pending')}</small>
+        </div>
+        <small class="text-muted">🕒 ${time}</small>
+      </div>`;
+}
 
 function loadData(){
-    fetch(API)
-      .then(r => r.json())
+    // THÊM THAM SỐ t= ĐỂ TRÁNH CACHE VÀ ÉP NO-STORE
+    fetch(API + "?t=" + Date.now(), {cache: "no-store"})
+      .then(r => {
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(data => {
         const list = document.getElementById('list');
         list.innerHTML = '';
@@ -33,21 +80,29 @@ function loadData(){
           list.innerHTML = `<div class="text-muted">Chưa có yêu cầu nào</div>`;
           return;
         }
-        data.forEach(item => {
-          list.innerHTML += `
-            <div class="list-group-item">
-              <strong>${item.name}</strong> (${item.email})<br>
-              ${item.message}<br>
-              <small class="badge bg-secondary">Trạng thái: ${item.status}</small>
-            </div>`;
-        });
+        // SẮP XẾP THEO GIỜ MỚI NHẤT
+        data.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+        data.forEach(item => list.innerHTML += buildItem(item));
       })
-      .catch(err=>{
+      .catch(err => {
         document.getElementById('list').innerHTML =
-          `<div class="text-danger">Không tải được dữ liệu: ${err}</div>`;
+          `<div class="text-danger">Không tải được dữ liệu: ${err.message}</div>`;
       });
 }
 
+document.getElementById('reloadBtn').addEventListener('click', loadData);
+document.getElementById('autoBtn').addEventListener('click', () => {
+    autoRefresh = !autoRefresh;
+    document.getElementById('autoBtn').textContent = autoRefresh ? 'Tự động: BẬT' : 'Tự động: TẮT';
+    if (autoRefresh) {
+        autoTimer = setInterval(loadData, 5000); // 5 giây
+    } else {
+        clearInterval(autoTimer);
+        autoTimer = null;
+    }
+});
+
+// TẢI DỮ LIỆU LẦN ĐẦU
 loadData();
 </script>
 </body>

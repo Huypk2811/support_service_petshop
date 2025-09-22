@@ -17,8 +17,13 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonSerializer;
 
-// ❗ DÙNG web.xml, KHÔNG @WebServlet
+/**
+ * SERVLET XỬ LÝ API CHO SUPPORT REQUEST
+ * URL: /api/support/*
+ * (Được cấu hình trong web.xml, KHÔNG dùng @WebServlet)
+ */
 public class SupportServlet extends HttpServlet {
+
     private SupportRequestDAO supportRequestDAO;
     private Gson gson;
 
@@ -26,7 +31,7 @@ public class SupportServlet extends HttpServlet {
     public void init() {
         supportRequestDAO = new SupportRequestDAO();
 
-        // FIX LocalDateTime với Gson
+        // Gson custom để serialize/deserialize LocalDateTime
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         gson = new GsonBuilder()
                 .registerTypeAdapter(LocalDateTime.class,
@@ -38,7 +43,7 @@ public class SupportServlet extends HttpServlet {
                 .create();
     }
 
-    // GET: lấy tất cả hoặc theo ID
+    /** GET: LẤY TẤT CẢ HOẶC LẤY THEO ID */
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         req.setCharacterEncoding("UTF-8");
@@ -46,6 +51,7 @@ public class SupportServlet extends HttpServlet {
 
         String pathInfo = req.getPathInfo();
         if (pathInfo == null || pathInfo.equals("/")) {
+            // Trả về toàn bộ danh sách (ORDER BY created_at DESC trong DAO)
             List<SupportRequest> list = supportRequestDAO.findAll();
             resp.getWriter().write(gson.toJson(list));
         } else {
@@ -60,11 +66,12 @@ public class SupportServlet extends HttpServlet {
                 }
             } catch (NumberFormatException e) {
                 resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                resp.getWriter().write("{\"error\":\"Invalid ID format\"}");
             }
         }
     }
 
-    // POST: tạo mới
+    /** POST: THÊM MỚI YÊU CẦU */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         req.setCharacterEncoding("UTF-8");
@@ -73,11 +80,16 @@ public class SupportServlet extends HttpServlet {
         BufferedReader reader = req.getReader();
         SupportRequest request = gson.fromJson(reader, SupportRequest.class);
 
+        // Nếu client không gửi createdAt, tự set
+        if (request.getCreatedAt() == null) {
+            request.setCreatedAt(LocalDateTime.now());
+        }
+
         supportRequestDAO.save(request);
         resp.getWriter().write(gson.toJson(request));
     }
 
-    // PUT: cập nhật
+    /** PUT: CẬP NHẬT THEO ID */
     @Override
     protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         req.setCharacterEncoding("UTF-8");
@@ -85,20 +97,25 @@ public class SupportServlet extends HttpServlet {
 
         String pathInfo = req.getPathInfo();
         if (pathInfo != null && pathInfo.length() > 1) {
-            Long id = Long.parseLong(pathInfo.substring(1));
-            BufferedReader reader = req.getReader();
-            SupportRequest updateReq = gson.fromJson(reader, SupportRequest.class);
+            try {
+                Long id = Long.parseLong(pathInfo.substring(1));
+                BufferedReader reader = req.getReader();
+                SupportRequest updateReq = gson.fromJson(reader, SupportRequest.class);
+                updateReq.setId(id);
 
-            updateReq.setId(id);
-            supportRequestDAO.update(updateReq);
-
-            resp.getWriter().write(gson.toJson(updateReq));
+                supportRequestDAO.update(updateReq);
+                resp.getWriter().write(gson.toJson(updateReq));
+            } catch (NumberFormatException e) {
+                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                resp.getWriter().write("{\"error\":\"Invalid ID format\"}");
+            }
         } else {
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            resp.getWriter().write("{\"error\":\"Missing ID in path\"}");
         }
     }
 
-    // DELETE: xóa
+    /** DELETE: XÓA THEO ID */
     @Override
     protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         req.setCharacterEncoding("UTF-8");
@@ -106,12 +123,22 @@ public class SupportServlet extends HttpServlet {
 
         String pathInfo = req.getPathInfo();
         if (pathInfo != null && pathInfo.length() > 1) {
-            Long id = Long.parseLong(pathInfo.substring(1));
-            supportRequestDAO.delete(id);
-
-            resp.getWriter().write("{\"message\":\"Deleted support request with id " + id + "\"}");
+            try {
+                Long id = Long.parseLong(pathInfo.substring(1));
+                boolean deleted = supportRequestDAO.delete(id);
+                if (deleted) {
+                    resp.setStatus(HttpServletResponse.SC_NO_CONTENT);
+                } else {
+                    resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                    resp.getWriter().write("{\"error\":\"Not found\"}");
+                }
+            } catch (NumberFormatException e) {
+                resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                resp.getWriter().write("{\"error\":\"Invalid ID format\"}");
+            }
         } else {
             resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            resp.getWriter().write("{\"error\":\"Missing ID in path\"}");
         }
     }
 }
